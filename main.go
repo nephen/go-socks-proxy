@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 )
 
 const socks5Ver = 0x05
@@ -18,17 +19,43 @@ const atypeHOST = 0x03
 const atypeIPV6 = 0x04
 
 func main() {
+	// 定义允许连接的 IP 地址
+	allowedIPs := []string{"127.0.0.1", "183.238.224.118", "110.40.194.189"}
+
 	server, err := net.Listen("tcp", "0.0.0.0:1080")
 	if err != nil {
 		panic(err)
 	}
+	defer server.Close()
+	fmt.Println("Server started. Listening on :1080")
+
 	for {
-		client, err := server.Accept()
+		conn, err := server.Accept()
 		if err != nil {
 			log.Printf("Accept failed %v", err)
 			continue
 		}
-		go process(client)
+		// 获取客户端的 IP 地址
+		clientIP := strings.Split(conn.RemoteAddr().String(), ":")[0]
+		// 检查客户端 IP 是否在白名单中
+		allowed := false
+		for _, ip := range allowedIPs {
+			if ip == clientIP {
+				allowed = true
+				break
+			}
+		}
+
+		// 如果客户端 IP 不在白名单中，关闭连接
+		if !allowed {
+			fmt.Println("Connection from", clientIP, "is not allowed")
+			conn.Close()
+			continue
+		}
+
+		// 处理客户端连接
+		fmt.Println("Connection from", clientIP, "is allowed")
+		go process(conn)
 	}
 }
 

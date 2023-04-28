@@ -9,7 +9,10 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
 const socks5Ver = 0x05
@@ -18,16 +21,27 @@ const atypIPV4 = 0x01
 const atypeHOST = 0x03
 const atypeIPV6 = 0x04
 
-func main() {
-	// 定义允许连接的 IP 地址
-	allowedIPs := []string{"127.0.0.1", "183.238.224.118", "110.40.194.189"}
+func init() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Error loading .env file: %v", err)
+	}
+}
 
-	server, err := net.Listen("tcp", "0.0.0.0:1080")
+func main() {
+	// 获取 ALLOWED_IPS 环境变量的值
+	allowedIPsString := os.Getenv("ALLOWED_IPS")
+	// 将字符串以逗号分隔为切片
+	// 定义允许连接的 IP 地址
+	allowedIPs := strings.Split(allowedIPsString, ",")
+	log.Printf("allowedIPs: %v", allowedIPs)
+
+	server, err := net.Listen("tcp", "0.0.0.0:"+os.Getenv("PORT"))
 	if err != nil {
 		panic(err)
 	}
 	defer server.Close()
-	fmt.Println("Server started. Listening on :1080")
+	log.Println("Server started. Listening on :" + os.Getenv("PORT"))
 
 	for {
 		conn, err := server.Accept()
@@ -48,13 +62,13 @@ func main() {
 
 		// 如果客户端 IP 不在白名单中，关闭连接
 		if !allowed {
-			fmt.Println("Connection from", clientIP, "is not allowed")
+			// log.Println("Connection from", clientIP, "is not allowed")
 			conn.Close()
 			continue
 		}
 
 		// 处理客户端连接
-		fmt.Println("Connection from", clientIP, "is allowed")
+		log.Println("Connection from", clientIP, "is allowed")
 		go process(conn)
 	}
 }

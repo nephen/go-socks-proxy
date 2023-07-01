@@ -11,31 +11,66 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
 
-const socks5Ver = 0x05
 const cmdBind = 0x01
 const atypIPV4 = 0x01
 const atypeHOST = 0x03
 const atypeIPV6 = 0x04
 
+// Authentication METHODs described in RFC 1928, section 3.
+const (
+	noAuthRequired   byte = 0
+	passwordAuth     byte = 2
+	noAcceptableAuth byte = 255
+)
+
+// passwordAuthVersion is the auth version byte described in RFC 1929.
+const passwordAuthVersion = 1
+
+// socks5Version is the byte that represents the SOCKS version
+// in requests.
+const socks5Version byte = 5
+
+var lastLoadedTime time.Time
+
 func init() {
-	err := godotenv.Load()
+	err := godotenv.Load(".env")
 	if err != nil {
 		log.Fatalf("Error loading .env file: %v", err)
+	}
+	lastLoadedTime = time.Now()
+}
+
+func checkEnv() {
+	// 检查环境变量文件的修改时间
+	fileInfo, err := os.Stat(".env")
+	if err != nil {
+		fmt.Println("Failed to check environment variables file:", err)
+		return
+	}
+
+	// 检查文件的修改时间与上次加载的时间是否一致
+	if fileInfo.ModTime().After(lastLoadedTime) {
+		// 加载新的环境变量文件
+		err = godotenv.Overload(".env")
+		if err != nil {
+			fmt.Println("Failed to reload environment variables:", err)
+			return
+		}
+
+		// 更新最后加载时间
+		lastLoadedTime = time.Now()
+
+		// 执行环境变量更新后的操作（如重启服务器等）
+		fmt.Println("Environment variables reloaded")
 	}
 }
 
 func main() {
-	// 获取 ALLOWED_IPS 环境变量的值
-	allowedIPsString := os.Getenv("ALLOWED_IPS")
-	// 将字符串以逗号分隔为切片
-	// 定义允许连接的 IP 地址
-	allowedIPs := strings.Split(allowedIPsString, ",")
-	log.Printf("allowedIPs: %v", allowedIPs)
-
 	server, err := net.Listen("tcp", "0.0.0.0:"+os.Getenv("PORT"))
 	if err != nil {
 		panic(err)
@@ -49,28 +84,40 @@ func main() {
 			log.Printf("Accept failed %v", err)
 			continue
 		}
-		// 获取客户端的 IP 地址
-		clientIP := strings.Split(conn.RemoteAddr().String(), ":")[0]
-		// 检查客户端 IP 是否在白名单中
-		allowed := false
-		for _, ip := range allowedIPs {
-			if ip == clientIP {
-				allowed = true
-				break
-			}
-		}
 
-		// 如果客户端 IP 不在白名单中，关闭连接
-		if !allowed {
-			// log.Println("Connection from", clientIP, "is not allowed")
-			conn.Close()
-			continue
-		}
-
-		// 处理客户端连接
-		log.Println("Connection from", clientIP, "is allowed")
+		checkEnv()
 		go process(conn)
 	}
+}
+
+func needAuth(conn net.Conn) bool {
+	// 获取 ALLOWED_IPS 环境变量的值
+	allowedIPsString := os.Getenv("ALLOWED_IPS")
+	// 将字符串以逗号分隔为切片
+	// 定义允许连接的 IP 地址
+	allowedIPs := strings.Split(allowedIPsString, ",")
+	// log.Printf("allowedIPs: %v", allowedIPs)
+
+	// 获取客户端的 IP 地址
+	clientIP := strings.Split(conn.RemoteAddr().String(), ":")[0]
+	// 检查客户端 IP 是否在白名单中
+	allowed := false
+	for _, ip := range allowedIPs {
+		if ip == clientIP {
+			allowed = true
+			break
+		}
+	}
+
+	// 如果客户端 IP 不在白名单中，需要认证
+	if !allowed {
+		// log.Println("Connection from", clientIP, "is not allowed")
+		return true
+	}
+
+	// 处理客户端连接
+	log.Println("Connection from", clientIP, "is allowed")
+	return false
 }
 
 func process(conn net.Conn) {
@@ -99,12 +146,11 @@ func auth(reader *bufio.Reader, conn net.Conn) (err error) {
 	// METHODS: 对应NMETHODS，NMETHODS的值为多少，METHODS就有多少个字节。RFC预定义了一些值的含义，内容如下:
 	// X’00’ NO AUTHENTICATION REQUIRED
 	// X’02’ USERNAME/PASSWORD
-
 	ver, err := reader.ReadByte()
 	if err != nil {
 		return fmt.Errorf("read ver failed:%w", err)
 	}
-	if ver != socks5Ver {
+	if ver != socks5Version {
 		return fmt.Errorf("not supported ver:%v", ver)
 	}
 	methodSize, err := reader.ReadByte()
@@ -122,10 +168,58 @@ func auth(reader *bufio.Reader, conn net.Conn) (err error) {
 	// +----+--------+
 	// | 1  |   1    |
 	// +----+--------+
-	_, err = conn.Write([]byte{socks5Ver, 0x00})
+	authMethod := noAuthRequired
+	if needAuth(conn) { // 不在白名单的需要认证
+		if method[0] == noAuthRequired { // 客户端没有支持认证，报错
+			conn.Write([]byte{socks5Version, noAcceptableAuth})
+			return fmt.Errorf("no acceptable auth")
+		}
+		authMethod = passwordAuth
+	}
+	_, err = conn.Write([]byte{socks5Version, authMethod})
 	if err != nil {
 		return fmt.Errorf("write failed:%w", err)
 	}
+
+	if authMethod == noAuthRequired {
+		return nil
+	}
+
+	// +----+--------+
+	// |VER | STATUS |
+	// +----+--------+
+	// | 1  |   1    |
+	// +----+--------+
+	hdr := make([]byte, 2)
+	_, err = io.ReadFull(reader, hdr)
+	if err != nil {
+		return fmt.Errorf("read auth packet header failed:%w", err)
+	}
+	if hdr[0] != passwordAuthVersion {
+		return fmt.Errorf("bad SOCKS auth version")
+	}
+
+	usrLen := int(hdr[1])
+	usrBytes := make([]byte, usrLen)
+	if _, err := io.ReadFull(reader, usrBytes); err != nil {
+		return fmt.Errorf("could not read auth packet username")
+	}
+	var hdrPwd [1]byte
+	if _, err := io.ReadFull(reader, hdrPwd[:]); err != nil {
+		return fmt.Errorf("could not read auth packet password length")
+	}
+	pwdLen := int(hdrPwd[0])
+	pwdBytes := make([]byte, pwdLen)
+	if _, err := io.ReadFull(reader, pwdBytes); err != nil {
+		return fmt.Errorf("could not read auth packet password")
+	}
+
+	if string(usrBytes) != os.Getenv("USER_NAME") || string(pwdBytes) != os.Getenv("PASSWD") {
+		conn.Write([]byte{1, 1}) // auth error
+		return fmt.Errorf("error username or password")
+	}
+	conn.Write([]byte{1, 0}) // auth success
+
 	return nil
 }
 
@@ -150,7 +244,7 @@ func connect(reader *bufio.Reader, conn net.Conn) (err error) {
 		return fmt.Errorf("read header failed:%w", err)
 	}
 	ver, cmd, atyp := buf[0], buf[1], buf[3]
-	if ver != socks5Ver {
+	if ver != socks5Version {
 		return fmt.Errorf("not supported ver:%v", ver)
 	}
 	if cmd != cmdBind {

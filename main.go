@@ -42,7 +42,7 @@ var allowedIPs []string
 
 func updateSpecailIPs(reader *bufio.Reader, conn net.Conn) bool {
 	b, _ := reader.Peek(1)
-	if b[0] == socks5Version {
+	if len(b) == 0 || b[0] == socks5Version {
 		return false
 	}
 

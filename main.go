@@ -75,7 +75,7 @@ func updateIps() {
 	// 定义允许连接的 IP 地址
 	allowedIPs = strings.Split(allowedIPsString, ",")
 	allowedIPs = append(allowedIPs, specailIPs...)
-	// log.Printf("allowedIPs: %v", allowedIPs)
+	log.Printf("allowedIPs: %v", allowedIPs)
 }
 
 func init() {
@@ -146,7 +146,7 @@ func needAuth(conn net.Conn) bool {
 
 	// 如果客户端 IP 不在白名单中，需要认证
 	if !allowed {
-		// log.Println("Connection from", clientIP, "is not allowed")
+		log.Println("Connection from", clientIP, "is not allowed")
 		return true
 	}
 

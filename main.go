@@ -59,6 +59,7 @@ func updateSpecailIPs(reader *bufio.Reader, conn net.Conn) bool {
 			if key == "Add_remote_ip" && value == os.Getenv("TOKEN") {
 				remoteIp := strings.Split(conn.RemoteAddr().String(), ":")[0]
 				specailIPs = append(specailIPs, remoteIp)
+				updateIps()
 				log.Printf("client %v update specailIPs", remoteIp)
 				return true
 			}

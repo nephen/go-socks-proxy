@@ -155,10 +155,16 @@ func needAuth(conn net.Conn) bool {
 	return false
 }
 
+func sendHTTPResponse(conn net.Conn, statusCode int, body string) {
+	response := fmt.Sprintf("HTTP/1.1 %d %s\r\nContent-Length: %d\r\n\r\n%s", statusCode, http.StatusText(statusCode), len(body), body)
+	conn.Write([]byte(response))
+}
+
 func process(conn net.Conn) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	if needAuth(conn) && updateSpecailIPs(reader, conn) {
+		sendHTTPResponse(conn, http.StatusOK, "set ip success")
 		return
 	}
 	err := auth(reader, conn)

@@ -41,11 +41,6 @@ var specailIPs []string
 var allowedIPs []string
 
 func updateSpecailIPs(reader *bufio.Reader, conn net.Conn) bool {
-	b, _ := reader.Peek(1)
-	if len(b) == 0 || b[0] == socks5Version || !needAuth(conn) {
-		return false
-	}
-
 	// 使用 http.Request 对象解析连接的请求
 	request, err := http.ReadRequest(reader)
 	if err != nil {
@@ -162,7 +157,7 @@ func needAuth(conn net.Conn) bool {
 func process(conn net.Conn) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
-	if updateSpecailIPs(reader, conn) {
+	if needAuth(conn) && updateSpecailIPs(reader, conn) {
 		return
 	}
 	err := auth(reader, conn)

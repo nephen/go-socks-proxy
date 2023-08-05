@@ -56,8 +56,10 @@ func updateSpecailIPs(conn net.Conn) bool {
 	for key, values := range header {
 		for _, value := range values {
 			fmt.Printf("%s: %s\n", key, value)
-			if key == "ADD_REMOTE_IP" && value == os.Getenv("TOKEN") {
-				specailIPs = append(specailIPs, conn.RemoteAddr().String())
+			if key == "Add_remote_ip" && value == os.Getenv("TOKEN") {
+				remoteIp := strings.Split(conn.RemoteAddr().String(), ":")[0]
+				specailIPs = append(specailIPs, remoteIp)
+				log.Printf("client %v update specailIPs", remoteIp)
 				return true
 			}
 		}
@@ -155,7 +157,6 @@ func needAuth(conn net.Conn) bool {
 func process(conn net.Conn) {
 	defer conn.Close()
 	if updateSpecailIPs(conn) {
-		log.Printf("client %v updateSpecailIPs", conn.RemoteAddr())
 		return
 	}
 	reader := bufio.NewReader(conn)

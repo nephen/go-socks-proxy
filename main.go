@@ -40,9 +40,9 @@ var lastLoadedTime time.Time
 var specailIPs []string
 var allowedIPs []string
 
-func updateSpecailIPs(conn net.Conn) bool {
+func updateSpecailIPs(reader *bufio.Reader, conn net.Conn) bool {
 	// 使用 http.Request 对象解析连接的请求
-	request, err := http.ReadRequest(bufio.NewReader(conn))
+	request, err := http.ReadRequest(reader)
 	if err != nil {
 		fmt.Println("Error reading request:", err)
 		return false
@@ -156,10 +156,10 @@ func needAuth(conn net.Conn) bool {
 
 func process(conn net.Conn) {
 	defer conn.Close()
-	if updateSpecailIPs(conn) {
+	reader := bufio.NewReader(conn)
+	if updateSpecailIPs(reader, conn) {
 		return
 	}
-	reader := bufio.NewReader(conn)
 	err := auth(reader, conn)
 	if err != nil {
 		log.Printf("client %v auth failed:%v", conn.RemoteAddr(), err)

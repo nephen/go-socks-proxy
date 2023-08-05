@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -36,12 +37,50 @@ const passwordAuthVersion = 1
 const socks5Version byte = 5
 
 var lastLoadedTime time.Time
+var specailIPs []string
+var allowedIPs []string
+
+func updateSpecailIPs(conn net.Conn) bool {
+	// 使用 http.Request 对象解析连接的请求
+	request, err := http.ReadRequest(bufio.NewReader(conn))
+	if err != nil {
+		fmt.Println("Error reading request:", err)
+		return false
+	}
+
+	// 获取请求头信息
+	header := request.Header
+
+	// 输出请求头信息
+	fmt.Println("Request Headers:")
+	for key, values := range header {
+		for _, value := range values {
+			fmt.Printf("%s: %s\n", key, value)
+			if key == "ADD_REMOTE_IP" && value == os.Getenv("TOKEN") {
+				specailIPs = append(specailIPs, conn.RemoteAddr().String())
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func updateIps() {
+	// 获取 ALLOWED_IPS 环境变量的值
+	allowedIPsString := os.Getenv("ALLOWED_IPS")
+	// 将字符串以逗号分隔为切片
+	// 定义允许连接的 IP 地址
+	allowedIPs = strings.Split(allowedIPsString, ",")
+	allowedIPs = append(allowedIPs, specailIPs...)
+	// log.Printf("allowedIPs: %v", allowedIPs)
+}
 
 func init() {
 	err := godotenv.Load(".env")
 	if err != nil {
 		log.Fatalf("Error loading .env file: %v", err)
 	}
+	updateIps()
 	lastLoadedTime = time.Now()
 }
 
@@ -61,7 +100,7 @@ func checkEnv() {
 			fmt.Println("Failed to reload environment variables:", err)
 			return
 		}
-
+		updateIps()
 		// 更新最后加载时间
 		lastLoadedTime = time.Now()
 
@@ -91,13 +130,6 @@ func main() {
 }
 
 func needAuth(conn net.Conn) bool {
-	// 获取 ALLOWED_IPS 环境变量的值
-	allowedIPsString := os.Getenv("ALLOWED_IPS")
-	// 将字符串以逗号分隔为切片
-	// 定义允许连接的 IP 地址
-	allowedIPs := strings.Split(allowedIPsString, ",")
-	// log.Printf("allowedIPs: %v", allowedIPs)
-
 	// 获取客户端的 IP 地址
 	clientIP := strings.Split(conn.RemoteAddr().String(), ":")[0]
 	// 检查客户端 IP 是否在白名单中
@@ -122,6 +154,10 @@ func needAuth(conn net.Conn) bool {
 
 func process(conn net.Conn) {
 	defer conn.Close()
+	if updateSpecailIPs(conn) {
+		log.Printf("client %v updateSpecailIPs", conn.RemoteAddr())
+		return
+	}
 	reader := bufio.NewReader(conn)
 	err := auth(reader, conn)
 	if err != nil {

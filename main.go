@@ -41,13 +41,16 @@ var specailIPs []string
 var allowedIPs []string
 
 func updateSpecailIPs(reader *bufio.Reader, conn net.Conn) bool {
-	// 使用 io.TeeReader 复制原始数据到另一个 io.Writer
-	// buf 中保存了一份原始数据的拷贝，你可以根据需求使用它
-	var buf strings.Builder
-	teeReader := io.TeeReader(reader, &buf)
+	peekData, err := reader.Peek(3)
+	if err != nil {
+		return false
+	}
+	if !strings.HasPrefix(string(peekData), "GET") {
+		return false
+	}
 
 	// 使用 http.Request 对象解析连接的请求
-	request, err := http.ReadRequest(bufio.NewReader(teeReader))
+	request, err := http.ReadRequest(reader)
 	if err != nil {
 		fmt.Println("Error reading request:", err)
 		return false
@@ -151,7 +154,7 @@ func needAuth(conn net.Conn) bool {
 
 	// 如果客户端 IP 不在白名单中，需要认证
 	if !allowed {
-		log.Println("Connection from", clientIP, "is not allowed")
+		// log.Println("Connection from", clientIP, "is not allowed")
 		return true
 	}
 

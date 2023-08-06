@@ -41,8 +41,13 @@ var specailIPs []string
 var allowedIPs []string
 
 func updateSpecailIPs(reader *bufio.Reader, conn net.Conn) bool {
+	// 使用 io.TeeReader 复制原始数据到另一个 io.Writer
+	// buf 中保存了一份原始数据的拷贝，你可以根据需求使用它
+	var buf strings.Builder
+	teeReader := io.TeeReader(reader, &buf)
+
 	// 使用 http.Request 对象解析连接的请求
-	request, err := http.ReadRequest(reader)
+	request, err := http.ReadRequest(bufio.NewReader(teeReader))
 	if err != nil {
 		fmt.Println("Error reading request:", err)
 		return false
